@@ -1,4 +1,4 @@
-function optmRslts = Prim_Relx_Dual(inptStrct,optStrct,loclStrct,...
+function optmRslts = Prim_Relx_Dual_2Norm(inptStrct,optStrct,loclStrct,...
                                       intmRslts)
 % function optmRslts = Prim_Relx_Dual(inptStrct,optStrct,loclStrct,...
 %                           intmRslts)
@@ -67,17 +67,16 @@ function optmRslts = Prim_Relx_Dual(inptStrct,optStrct,loclStrct,...
 
 numX = inptStrct.numX;
 numY = length(inptStrct.y0);
-ineq = inptStrct.polynomials(1:end - (2 * numX + 1));
+biCVX = inptStrct.polynomials(1);
+bnd = inptStrct.polynomials(2:end); 
 
 x_lb = optStrct.x_lb; x_ub = optStrct.x_ub;
 y_lb = optStrct.y_lb; y_ub = optStrct.y_ub;
 
 xOption = optStrct.xOption;
 lcaSearch = optStrct.lcaSearch ;
-linTolbx = optStrct.linTolbx;
 
 lcaObj = loclStrct.lcaObj;
-lcaCons = loclStrct.lcaCons;
 
 % Screen printer headers and figure plot
 header = sprintf('\n Iter   Upp. bnd.     Low. bnd.       Iter upp. bnd.    Abs Gap    Node   Pnode\n' );
@@ -87,21 +86,11 @@ h = figure;
 set(h, 'WindowStyle', 'Docked');
 
 % Symbolic for X and Y vairables
-X = sym('x', [numX + 1, 1]); Y = sym('y', [numY, 1]);
+X = sym('x', [numX, 1]); Y = sym('y', [numY, 1]);
 
-% linear solver option
-if(linTolbx == 1)
-    % Cplex options
-    linOptions = cplexoptimset('cplex');
-    linOptions = cplexoptimset(linOptions,'lpmethod',1);
-else
-    % linprog options
-    linOptions = optimoptions('linprog','Display','off',...
-        'MaxIterations',1e8,'ConstraintTolerance',1e-5);
-end
-% nonlinear solver options - do local search with fmincon
+% nonlinear solver options 
 nlinOptions = optimoptions('fmincon','Display','off',...
-    'algorithm','sqp','MaxFunEvals',50000,'MaxIter',10000);
+    'algorithm','interior-point','MaxFunEvals',50000,'MaxIter',10000);
 
 if(nargin < 4)
     % Starting from new inital value
@@ -120,8 +109,7 @@ if(nargin < 4)
     %    APoy * y <= bPoy;
     
     % root node in the branch and bound tree
-    treeNode(1) = struct('nodeLvl', 1, 'pNode', 0, 'yVal', inptStrct.y0,...
-        'APoy', [],'bPoy', []);
+    treeNode(1) = struct('nodeLvl', 1, 'pNode', 0, 'yVal', inptStrct.y0,);
     nodeNum = 1;
     numNode = 1;
     iter = 1;
@@ -161,17 +149,10 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
     tLevel = treeNode(nodeNum).nodeLvl;
     % Fixed y value for solving primal problem
     y = treeNode(nodeNum).yVal;
-    % Construct primal problem with new fixed y value
-    [A_prim, b_prim] = Vec_To_Mtx(y, ineq, numX + 1, numY);
-    c = [zeros(numX,1); 1];
-    % Solve primal optimization problem
-    if(linTolbx == 1)
-        [x, primFval, ~, ~, lambda] = cplexlp(c, A_prim, b_prim, [], [],...
-            x_lb, x_ub, [], linOptions);
-    else
-        [x, primFval, ~, ~, lambda] = linprog(c, A_prim, b_prim, [], [],...
-            x_lb, x_ub, [], linOptions);
-    end
+    % Solve primal problem with new fixed y value
+    primProb = matlabFunction(subs(biCVX, Y(1 : end - 1), y0),'Optimize',false,'Vars',{X});
+    [x, primFval, ~,~, lambda] = fmincon(prim, zeros(n_alpha,1),...
+                                    [], [], [], [], x_lb , x_ub,[],nlinOptions);
     % Record the x and y values during optimization process
     xRec = [xRec x];
     yRec = [yRec [y; lbFval]];
@@ -180,16 +161,16 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
     % Do local search using updated x and y values as initial values
     if(lcaSearch)
         if(xOption == 1)
-            x0 = [x(1:end-1); y; x(end)];
-            lb = [x_lb(1:end-1); y_lb(1:end-1); x_lb(end)];
-            ub = [x_ub(1:end-1); y_ub(1:end-1); x_ub(end)];
+            x0 = [x;y;];
+            lb = [x_lb; y_lb(1:end-1); ];
+            ub = [x_ub; y_ub(1:end-1); ];
         else
-            x0 = [y; x(1:end)];
-            lb = [y_lb(1:end-1); x_lb(1:end)];
-            ub = [y_ub(1:end-1); x_ub(1:end)];
+            x0 = [y; x];
+            lb = [y_lb(1:end-1); x_lb];
+            ub = [y_ub(1:end-1); x_ub];
         end
         [localTemp, fvalTemp, localFlag] = fmincon(lcaObj,...
-            x0, [], [], [], [],lb , ub, lcaCons, nlinOptions);
+            x0, [], [], [], [], lb, ub, [], nlinOptions);
         % fmincon finds better local optimal value
         if(localFlag > 0 && ubLocal > fvalTemp)
             ubLocal = fvalTemp;
@@ -221,11 +202,11 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
         % toletance value; exit the algtorithm with x, y values
         if(abs(ubLocal - lbFval) < optStrct.tolGap)
             if(xOption == 1)
-                optmRslts.x = [xLca(1:numX); xLca(end)];
+                optmRslts.x = xLca(1:numX);
                 optmRslts.y = xLca(numX + 1 : end-1);
             else
                 optmRslts.x = xLca(numX + 1 : end-1);
-                optmRslts.y = [xLca(1:numX); xLca(end)];
+                optmRslts.y = xLca(1:numX);
             end
             optmRslts.nodeNum = nodeNum;
             optmRslts.numNode = numNode;
@@ -249,63 +230,36 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
     ubIter = primFval;
     
     % Lagrange function of the new nodes
-    lagMultp = [lambda.ineqlin; lambda.lower; lambda.upper(1:numX)]' ;
-    lagFunc = X(end) + lagMultp * inptStrct.polynomials;
+    lagFunc = biCVX + [lambda.lower;lambda.upper;]' * bnd;
     
-    % Remove the variables with small coeffecient value in Lagragian
-    % functon
-    [cx,tx] = coeffs(lagFunc); cx = double(cx);
-    for i = 1:length(cx)
-        if(abs(cx(i)) < 1e-10)
-            cx(i) = 0;
-        end
-    end
-    lagFunc = cx * tx.';
     % Find connected variables - only X existing in bilinear terms of
     % Lagrangian function is connected variables
-    [cx,conctX] = coeffs(lagFunc,X);
-    numConctX = 0; fxX = [];
-    if(~isempty(conctX))
-        % if last entry is '1', total number of X varibales decrease by 1
-        if(conctX(end) == 1)
-            numConctX = length(conctX)  - 1;
-        else
-            numConctX = length(conctX);
-        end
-        conctX = conctX(1:numConctX);
-        % Find X variables whose coeffecient is constant number    
-        fxX = []; fxVal = []; delIdx = [];
-        for i = 1:numConctX
-            % if coeffecient of X variables contains Y -> connected variables
-            % str2num will return [] if cx constains Y variables
-            if(~isempty(str2num(char(cx(i)))))
-                % coeffecient of X vairable is a constant number
-                % delete from connected varaibels list
-                fxX = [fxX conctX(i)]; delIdx = [delIdx i];
-                if(double(cx(i)) < 0)
-                    % if coeffecient < 0  -> gradient of
-                    % Lagrangian w.r.t x is always < 0 -> x takes upper bound
-                    % value in relaxed dual problem
-                    fxVal = [fxVal 1];
-                else
-                    % if coeffecient is >  0 -> gradient of
-                    % Lagrangian w.r.t x is always > 0 -> x takes lower bound
-                    % value in relaxed dual problem
-                    fxVal = [fxVal 0];
+    conctX = []; xIdx = [];
+    for i = 1 : numX
+        [cx,tx] = coeffs(lagFunc,X(i));
+        if(~isempty(tx))
+            if(tx(end) == 1)
+                loopX = length(cx) - 1;
+            else
+                loopX = length(cx);
+            end
+            for j = 1:loopX
+                [~,tx] = coeffs(cx(j),Y);
+                if(~(length(tx) == 1 && tx(end) == 1) && ~isempty(tx))
+                    conctX = [conctX X(i)];
+                    xIdx = [xIdx i];
+                    break;
                 end
             end
         end
-        % Remove X with constant coeffecient from the conncected variable list
-        conctX(delIdx) = [];
-        numConctX = length(conctX);
     end
+    numConctX = length(conctX);
     %% Find qualifying constraints for relaxed subproblem
-    AQual = []; bQual = [];
+    rexDualQual = sym([]);
     % Current node is the first parent node of the new node
     pNode = nodeNum;
     while(tLevel > 1)
-        AQual = [AQual; treeNode(pNode).APoy];
-        bQual = [bQual; treeNode(pNode).bPoy];
+        rexDualQual = [rexDualQual;treeNode(numNode).rexDualIter];
         tLevel = tLevel - 1;
         pNode = treeNode(pNode).pNode;
     end
@@ -330,85 +284,46 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
             treeNode(numNode).nodeLvl = nLvl;
             treeNode(numNode).pNode = nodeNum;
             
-            APoy = zeros(1 + numConctX, numY + 1);
-            
-            bPoy = zeros(1 + numConctX, 1);
-            
             treePath = findpath(rexDulTree,1,botmNode(i));
-            
             iterX = zeros(numX,1);
-            % find value of nonConnected X variables
-            for j = 1:length(fxX)
-                if(fxVal(j) == 1)
-                    iterX(fxX(j) == X) = x_ub(fxX(j) == X);
-                else
-                    iterX(fxX(j) == X) = x_lb(fxX(j) == X);
-                end
-            end
+            gradLagCons = sym(zeros(numConctX,1));
+            gradLagFunc = sym(zeros(1,numConctX));
             % find value of Conncected X variables
             % find relaxed Lagrangian function and companying constraints
             for j = 1 : numConctX
                 % differentiate Lagrangian function w.r.t connected variable
-                gradLagFunc = diff(lagFunc,conctX(j));
-                % find coeffecient of companying constraints
-                [cx,tx] = coeffs(gradLagFunc,Y); cx = double(cx);
-                [~,ia,ib] = intersect(tx,Y);
+                gradLagFunc(1,j) = subs(diff(lagFunc,conctX(j)),X,xIter);
                 if( rem(treePath(1 + j ),2) == 0 )
-                    % gradient < 0 -> Ay + b < 0 -> Ay < -b
-                    iterX(conctX(j) == X) = x_ub(conctX(j) == X);
-                    APoy(j + 1,ib) = cx(ia);
-                    if(~isempty(find(tx == 1, 1)))
-                        bPoy(j + 1,1) = -cx(end);
-                    end
+                    gradLagCons(j,1) = subs(diff(lagFunc,conctX(j)),X,xIter);
+                    iterX(j) = x_ub(xIdx(j));
                 else
-                    % gradeint > 0 -> Ay + b > 0 -> -Ay < b
-                    iterX(conctX(j) == X) = x_lb(conctX(j) == X);
-                    APoy(j + 1,ib) = -cx(ia);
-                    if(~isempty(find(tx == 1, 1)))
-                        bPoy(j + 1,1) = cx(end);
-                    end
+                    gradLagCons(j,1) = -subs(diff(lagFunc,conctX(j)),X,xIter);
+                    iterX(j) = x_lb(xIdx(j));
                 end
+                
             end
-            % substitute x_B into Lagrange function to form relaxed dual problem
-            rexDual = subs(lagFunc,X(1:end-1),iterX);
-            % find coeffecient of relaxed dual problem
-            % Ay + b < mu_b -< Ay - mu_B < -b;
-            [cx,tx] = coeffs(rexDual,Y); cx = double(cx);
-            [~,ia,ib] = intersect(tx,Y);
-            APoy(1,ib) = cx(ia);
-            APoy(1,end) = -1;
-            % if constant exists in the relaxed dual problem
-            if(~isempty(find(tx == 1, 1)))
-                bPoy(1,1) = -cx(end);
-            end
-
-            % save APoy and bPoy of new node
-            treeNode(numNode).APoy = APoy;
-            treeNode(numNode).bPoy = bPoy;
+            ceq = 0;
+            linLag = (subs(lagFunc,X,xIter) + gradLagFunc * (iterX - xIter(xIdx))) - Y(end) ;
+            rexDualIter = [linLag;gradLagCons];
+            treeNode(numNode).rexDualIter = rexDualIter;
+            
             
             if(nLvl == 2)
-                ADual = APoy;
-                bDual = bPoy;
+                rexDual = rexDualIter;
             else
-                ADual = [AQual;APoy];
-                bDual = [bQual;bPoy];
+                rexDual = [rexDualQual;rexDualIter];
             end
+            
+            accpCons = matlabFunction(rexDual,ceq,'Outputs',{'cineq','ceq'},'Optimize',false,'Vars',{Y});
+            
             % minimize mu_B
-            c = [zeros(numY,1);
-                1];
+            objDual = matlabFunction(Y(end),'Vars',{Y});
             
-            if(linTolbx == 1)
-                [yTemp, ~, exitflag] = cplexlp(c, ADual, bDual, [], [],...
-                    y_lb, y_ub, [], linOptions);
-            else
-                [yTemp, ~, exitflag] = linprog(c, ADual, bDual, [], [],...
-                    y_lb, y_ub, [], linOptions);
-            end
-            
+            [yTemp, ~, exitflag] = fmincon(objDual,...
+                     [y0;0], [], [], [], [],y_lb , y_ub, accpCons, nlinOptions);
+ 
+           
             if(exitflag > 0)
-                % find zero column in A matrix -> correspondng y value does
-                % not update -> use value from last iteration
-                yTemp(~any(ADual,1)) = y(~any(ADual,1));
                 % save y and lower bound value
                 treeNode(numNode).yVal = yTemp(1:numY);
                 treeNode(numNode).fval = yTemp(end);
@@ -517,7 +432,7 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
     fvalCanIter = zeros(1,size(yValIter,2));
     c = [zeros(numX,1); 1];
     for i = 1:size(yValIter,2)
-        [ACand,bCand] = Vec_To_Mtx(yValIter(:,i),ineq, numX + 1, numY);
+        [ACand,bCand] = Vec_To_Mtx(yValIter(:,i),biCVX, numX + 1, numY);
         if(linTolbx == 1)
             [~, fvalCanIter(i)] = cplexlp(c, ACand, bCand, [], [],...
                 x_lb, x_ub, [], linOptions);
