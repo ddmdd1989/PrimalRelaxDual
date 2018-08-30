@@ -8,9 +8,12 @@ warning('off');
 N = 4;                               % DOF of the whole structure
 masses = 6 * ones(N, 1);             % kg
 iniSpring = 35 * ones(N, 1);       % N/m
-n_modes = 4;                        % number of measured mode shapes
-dmgLoc = [1 2 3 4];
-alpha_act = [0.2 -0.5 0.3 -0.3];
+n_modes = 1;                        % number of measured mode shapes
+% dmgLoc = [1 2 3 4];
+% alpha_act = [0.2 -0.5 0.3 -0.3];
+
+dmgLoc = [1 4];
+alpha_act = [0.2 -0.5];
 
 tolGap = 1e-5;
 
@@ -64,7 +67,6 @@ K0 = K0(rordIdx, rordIdx);
 M0 = M0(rordIdx, rordIdx);
 K_j = K_j(rordIdx, rordIdx,:);
 
-
 [psiSim,lambdaSim] = eig(K0,M0) ;
 
 [lambdaSim,dummyInd] = sort((diag(lambdaSim)),'ascend') ;
@@ -99,92 +101,24 @@ y_ub =  [ 3 * ones(length(unmeasDOFs) * n_modes,1);  inf];
 
 [ineq,bound] = MDR_Vector_2Norm(K0, M0, K_j, lambdaExp, psiExp_m, x_lb, x_ub);
 
-optm = subs(ineq,[X;Y(1:end - 1)],[alpha_act';reshape(psiExp_u,length(unmeasDOFs) * n_modes,1)]);
+optm = subs(ineq,[X;Y(1:end - 1)], [alpha_act'; reshape(psiExp_u,length(unmeasDOFs) * n_modes,1)]);
+
 y0 = zeros(length(unmeasDOFs) * n_modes,1);
 
-prim = matlabFunction(subs(ineq,Y(1 : end - 1),y0),'Optimize',false,'Vars',{X});
+prim = matlabFunction(subs(ineq,Y(1 : end - 1), y0),'Optimize',false,'Vars',{X});
 
 nlinOptions = optimoptions('fmincon','Display','off',...
-    'algorithm','interior-point','MaxFunEvals',50000,'MaxIter',10000);
-fun_orig = @(x) Obj_dynamicresidual(x,K0,M0,K_j,lambdaExp, psiExp_m,weight);
-polynomial = [ineq,;bound];
-inptStrct = struct('y0', y0, 'polynomials',polynomial,'numX',numX);
+    'algorithm','sqp','MaxFunEvals',5e5,'MaxIter',1e5);
+
+fun_orig = @(x) Obj_dynamicresidual(x, K0, M0, K_j, lambdaExp, psiExp_m, weight);
+polynomial = [ineq; bound];
+inptStrct = struct('y0', y0, 'polynomials', polynomial,'x0', zeros(n_alpha,1));
 iter_limit = 1e5;
 optStrct = struct('tolGap',tolGap,'iterLimt',iter_limit,'x_lb',x_lb,...
                     'x_ub',x_ub,'y_lb',y_lb,'y_ub',y_ub,'lcaSearch',1,...
-                    'xOption',1);
-loclStrct = struct('lcaObj',fun_orig);
+                    'xOption',1,'nlinOptions',nlinOptions);
+loclStrct = struct('lcaObj', fun_orig);
 
 
 optmRslts = Prim_Relx_Dual_2Norm(inptStrct,optStrct,loclStrct);
-
-% [xIter, fval, localFlag,~, lambda] = fmincon(prim, zeros(n_alpha,1), [], [], [], [], x_lb , x_ub,[],nlinOptions);
-% 
-% lagFunc = ineq + [lambda.lower;lambda.upper;]' * bound;
-% 
-% conctX = []; xIdx = [];
-% 
-% for i = 1 : numX
-%     [cx,tx] = coeffs(lagFunc,X(i));
-%     if(~isempty(tx))
-%        if(tx(end) == 1)
-%             loopX = length(cx) - 1;
-%        else
-%            loopX = length(cx);
-%        end
-%         for j = 1:loopX
-%             [~,tx] = coeffs(cx(j),Y);
-%             if(~(length(tx) == 1 && tx(end) == 1) && ~isempty(tx))
-%                 conctX = [conctX X(i)];
-%                 xIdx = [xIdx i];    
-%                 break;
-%             end
-%         end
-%     end
-% end
-% 
-% numConctX = length(conctX);
-%    
-% 
-% rexDulTree = tree('root');
-% for i = 1 : numConctX
-%     for j = 1 : (2^i)
-%         if(i == 1)
-%             [rexDulTree, l1(j)] = rexDulTree.addnode(1, 0);
-%         else
-%             eval(['[rexDulTree, l' num2str(i) '(j)] = rexDulTree.addnode(l' num2str(i-1) '( (ceil(j/2)) ),0);']);
-%         end
-%     end
-% end
-% eval(['botmNode = l' num2str(numConctX) ';']);
-% 
-% gradLagCons = sym(zeros(numConctX,1));
-% gradLagFunc = sym(zeros(1,numConctX));
-% i = 1;
-% treePath = findpath(rexDulTree,1,botmNode(i));
-% 
-% iterX = zeros(numConctX,1);
-% 
-% for j = 1 : numConctX
-%     % differentiate Lagrangian function w.r.t connected variable
-%     gradLagFunc(1,j) = subs(diff(lagFunc,conctX(j)),X,xIter);
-%     if( rem(treePath(1 + j ),2) == 0 )
-%         gradLagCons(j,1) = subs(diff(lagFunc,conctX(j)),X,xIter);
-%         iterX(j) = x_ub(xIdx(j));
-%     else 
-%         gradLagCons(j,1) = -subs(diff(lagFunc,conctX(j)),X,xIter);
-%         iterX(j) = x_lb(xIdx(j));
-%     end
-%     
-% end
-%      
-%  ceq = 0;
-%  linLag = (subs(lagFunc,X,xIter) + gradLagFunc * (iterX - xIter(xIdx))) - Y(end) ;
-%  rexDual = [linLag;gradLagCons];
-%  accpCons = matlabFunction(rexDual,ceq,'Outputs',{'cineq','ceq'},'Optimize',false,'Vars',{Y});
-%  objDual = matlabFunction(Y(end),'Vars',{Y});
-% 
-%  [localTemp, fvalTemp, localFlag] = fmincon(objDual,...
-%      [y0;0], [], [], [], [],y_lb , y_ub, accpCons, nlinOptions);
- 
 
