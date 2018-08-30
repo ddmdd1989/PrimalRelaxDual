@@ -1,4 +1,4 @@
-function r = Obj_dynamicresidual(x,K0,M0,K_j,lambdExp,psiExp_m,weight)
+function r = Obj_dynamicresidual(x,K0,M0,K_j,lambdaExp,psiExp_m,weight)
 
 n_alpha = size(K_j,3);
 n_modes = size(psiExp_m,2) ;
@@ -20,7 +20,7 @@ for i = 1 : n_modes
 end
 
 for j = 1 : n_modes
-    r((j-1) * N + 1 : j * N, 1) = (K - lambdExp(j) * M0) * psi(:,j) * weight(j);
+    r((j-1) * N + 1 : j * N, 1) = (K - lambdaExp(j) * M0) * psi(:,j) * weight(j);
 end
 
 r = norm(r)^2;

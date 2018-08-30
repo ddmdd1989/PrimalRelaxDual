@@ -66,7 +66,8 @@ function optmRslts = Prim_Relx_Dual_2Norm(inptStrct,optStrct,loclStrct,...
 %% Get option values from Inpt_Strct and initialize variables for the algorithm
 
 numX = inptStrct.numX;
-numY = length(inptStrct.y0);
+numY = length(inptStrct.y0) + 1;
+xIter = zeros(numX,1);
 biCVX = inptStrct.polynomials(1);
 bnd = inptStrct.polynomials(2:end); 
 
@@ -94,7 +95,7 @@ nlinOptions = optimoptions('fmincon','Display','off',...
 
 if(nargin < 4)
     % Starting from new inital value
-    disp("Starting from new initial value");
+    disp('Starting from new initial value');
     % Store intermediate results
     intRes = [];
     % Initilize lower and upper bounds of objective function value
@@ -109,7 +110,7 @@ if(nargin < 4)
     %    APoy * y <= bPoy;
     
     % root node in the branch and bound tree
-    treeNode(1) = struct('nodeLvl', 1, 'pNode', 0, 'yVal', inptStrct.y0,);
+    treeNode(1) = struct('nodeLvl', 1, 'pNode', 0, 'yVal', inptStrct.y0);
     nodeNum = 1;
     numNode = 1;
     iter = 1;
@@ -117,7 +118,7 @@ if(nargin < 4)
     xRec = []; yRec = [];
     
 else
-    disp("Picking up from previous results");
+    disp('Picking up from previous results');
     intRes = intmRslts.intRes;
     lbFval = intmRslts.lbFval;
     ubFval = intmRslts.ubFval;
@@ -150,22 +151,22 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
     % Fixed y value for solving primal problem
     y = treeNode(nodeNum).yVal;
     % Solve primal problem with new fixed y value
-    primProb = matlabFunction(subs(biCVX, Y(1 : end - 1), y0),'Optimize',false,'Vars',{X});
-    [x, primFval, ~,~, lambda] = fmincon(prim, zeros(n_alpha,1),...
+    primProb = matlabFunction(subs(biCVX, Y(1 : end - 1), y),'Optimize',false,'Vars',{X});
+    [xIter, primFval, ~,~, lambda] = fmincon(primProb, xIter,...
                                     [], [], [], [], x_lb , x_ub,[],nlinOptions);
     % Record the x and y values during optimization process
-    xRec = [xRec x];
+    xRec = [xRec xIter];
     yRec = [yRec [y; lbFval]];
     % Update upper bound of the objective function
     ubFval = min([ubFval, primFval]);
     % Do local search using updated x and y values as initial values
     if(lcaSearch)
         if(xOption == 1)
-            x0 = [x;y;];
+            x0 = [xIter;y;];
             lb = [x_lb; y_lb(1:end-1); ];
             ub = [x_ub; y_ub(1:end-1); ];
         else
-            x0 = [y; x];
+            x0 = [y; xIter];
             lb = [y_lb(1:end-1); x_lb];
             ub = [y_ub(1:end-1); x_ub];
         end
@@ -253,6 +254,7 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
             end
         end
     end
+    nonCnctIdx = setdiff(1 : numX, xIdx);
     numConctX = length(conctX);
     %% Find qualifying constraints for relaxed subproblem
     rexDualQual = sym([]);
@@ -278,6 +280,16 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
         end
         eval(['botmNode = l' num2str(numConctX) ';']);
         
+        relxConst = 0;
+        for i = 1 : length(nonCnctIdx)
+           tempGrad =  double(subs(diff(lagFunc,X(nonCnctIdx(i))),X(nonCnctIdx(i)),xIter(nonCnctIdx(i))));
+           if(tempGrad > 0)
+               relxConst = relxConst + tempGrad * (x_lb(nonCnctIdx(i)) - xIter(nonCnctIdx(i)));
+           else
+               relxConst = relxConst + tempGrad * (x_ub(nonCnctIdx(i)) - xIter(nonCnctIdx(i)));
+           end
+        end
+        
         for i = 1 : length(botmNode)
             % Construct relaxed dual problem from current iteration
             numNode = numNode + 1;
@@ -292,18 +304,18 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
             % find relaxed Lagrangian function and companying constraints
             for j = 1 : numConctX
                 % differentiate Lagrangian function w.r.t connected variable
-                gradLagFunc(1,j) = subs(diff(lagFunc,conctX(j)),X,xIter);
+                gradLagFunc(1,j) = subs(diff(lagFunc,conctX(j)),conctX(j),xIter(xIdx(j)));
                 if( rem(treePath(1 + j ),2) == 0 )
-                    gradLagCons(j,1) = subs(diff(lagFunc,conctX(j)),X,xIter);
+                    gradLagCons(j,1) = subs(diff(lagFunc,conctX(j)),conctX(j),xIter(xIdx(j)));
                     iterX(j) = x_ub(xIdx(j));
                 else
-                    gradLagCons(j,1) = -subs(diff(lagFunc,conctX(j)),X,xIter);
+                    gradLagCons(j,1) = -subs(diff(lagFunc,conctX(j)),conctX(j),xIter(xIdx(j)));
                     iterX(j) = x_lb(xIdx(j));
                 end
                 
             end
             ceq = 0;
-            linLag = (subs(lagFunc,X,xIter) + gradLagFunc * (iterX - xIter(xIdx))) - Y(end) ;
+            linLag = (subs(lagFunc,X,xIter) + gradLagFunc * (iterX - xIter(xIdx))) + relxConst - Y(end) ;
             rexDualIter = [linLag;gradLagCons];
             treeNode(numNode).rexDualIter = rexDualIter;
             
@@ -320,12 +332,12 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
             objDual = matlabFunction(Y(end),'Vars',{Y});
             
             [yTemp, ~, exitflag] = fmincon(objDual,...
-                     [y0;0], [], [], [], [],y_lb , y_ub, accpCons, nlinOptions);
+                     [y;0], [], [], [], [],y_lb , y_ub, accpCons, nlinOptions);
  
            
             if(exitflag > 0)
                 % save y and lower bound value
-                treeNode(numNode).yVal = yTemp(1:numY);
+                treeNode(numNode).yVal = yTemp(1 : numY - 1);
                 treeNode(numNode).fval = yTemp(end);
                 % ToDO: how useful is following code
                 % make sure y value is updated from the iteration
@@ -397,18 +409,18 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
     end
     
     % Fathom node with lb value larger than ub
-    fathIdx = intRes(numY + 1,:) > (min(ubFval,ubLocal) + optStrct.tolGap);
+    fathIdx = intRes(numY,:) > (min(ubFval,ubLocal) + optStrct.tolGap);
     intRes(:,fathIdx) = [];
     
     % Find new lower bound value
-    lbFvalIter = min(intRes(numY + 1,:));
+    lbFvalIter = min(intRes(numY,:));
     
     % Find candidate with same lower bound value
-    lbFvalIdx = find(abs(intRes(numY + 1,:) - lbFvalIter) < 1e-7);
+    lbFvalIdx = find(abs(intRes(numY,:) - lbFvalIter) < 1e-7);
     
     % Pick y candidates from current iteration achieve the same lower
     % bound value
-    yValIter = intRes(1 : numY, lbFvalIdx);
+    yValIter = intRes(1 : numY - 1, lbFvalIdx);
     % Pick NodeNum of y candidates from current iteration
     nodeNumIter = intRes(end, lbFvalIdx);
     % Substract old candidate from last iteration if same lower bound
@@ -430,16 +442,11 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
     
     % Calculate upper bound from all new y candidates
     fvalCanIter = zeros(1,size(yValIter,2));
-    c = [zeros(numX,1); 1];
-    for i = 1:size(yValIter,2)
-        [ACand,bCand] = Vec_To_Mtx(yValIter(:,i),biCVX, numX + 1, numY);
-        if(linTolbx == 1)
-            [~, fvalCanIter(i)] = cplexlp(c, ACand, bCand, [], [],...
-                x_lb, x_ub, [], linOptions);
-        else
-            [~, fvalCanIter(i)] = linprog(c, ACand, bCand, [], [],...
-                x_lb, x_ub, [], linOptions);
-        end
+    
+    for i = 1:size(yValIter,2)       
+        primProb = matlabFunction(subs(biCVX, Y(1 : end - 1), yValIter(:,i)),'Optimize',false,'Vars',{X});
+        [~, fvalCanIter(i)] = fmincon(primProb, xIter,...
+            [], [], [], [], x_lb , x_ub,[],nlinOptions);
     end
     % Add upper bound value from new y candidate to candidate group
     fvalCand = [fvalCand fvalCanIter];
@@ -461,9 +468,9 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
     
     fprintf(formatstr,iter,min(ubFval,ubLocal),lbFval,ubIter,ubIter - lbFval,nodeNum,treeNode(nodeNum).pNode );
     iter = iter + 1;
-    stem(1:numX,x(1:numX),'o')
+    stem(1:numX,xIter(1:numX),'o')
     ylim([min(x_lb(1:numX));max(x_ub(1:numX))]);
-    xticks(1:1:numX);
+%     xticks(1:1:numX);
     pause(0.5);
 end
 optmRslts.x = x;
