@@ -81,7 +81,7 @@ lcaObj = loclStrct.lcaObj;
 
 % Screen printer headers and figure plot
 header = sprintf('\n Iter   Upp. bnd.     Low. bnd.       Iter upp. bnd.    Abs Gap    Node   Pnode\n' );
-formatstr = '%5.0f   %5.6g  %13.6g    %13.6g   %13.6g  %5.0f  %5.0f\n';
+formatstr = '%5.0f   %5.3g  %13.6g    %13.6g   %13.6g  %5.0f  %5.0f\n';
 
 h = figure;
 set(h, 'WindowStyle', 'Docked');
@@ -91,7 +91,7 @@ X = sym('x', [numX, 1]); Y = sym('y', [numY, 1]);
 
 % nonlinear solver options 
 nlinOptions = optimoptions('fmincon','Display','off',...
-    'algorithm','interior-point','MaxFunEvals',50000,'MaxIter',10000);
+    'algorithm','sqp','MaxFunEvals',5e5,'MaxIter',1e5);
 
 if(nargin < 4)
     % Starting from new inital value
@@ -105,16 +105,12 @@ if(nargin < 4)
     %  -nodeLvl: level of node in the branch and bound tree
     %  -pNode: parent node in the branch and bound tree
     %  -yVal: fixed value of Y variables
-    %  -APoy : left side of qualifying lagragian and constriants
-    %  -bPoy : right side of qualifying lagragian and constriants
-    %    APoy * y <= bPoy;
-    
+       
     % root node in the branch and bound tree
     treeNode(1) = struct('nodeLvl', 1, 'pNode', 0, 'yVal', inptStrct.y0);
     nodeNum = 1;
     numNode = 1;
     iter = 1;
-    
     xRec = []; yRec = [];
     
 else
@@ -177,28 +173,7 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
             ubLocal = fvalTemp;
             xLca = localTemp;
         end
-        
-        %Todo - how useful is following code
-        % if better upper bound is found, solve the prime again to find 
-        % better Lagrange function
-        %         if(abs(fval_ub - fval_ub_local) > 1e-8)
-        %             y = x_local(n_X + 1 : end-1);
-        %             % Construct primal problem with new fixed y value
-        %             ineq = Inpt_Strct.polynomials(1:end - (2 * n_X + 1));
-        %             [A_prim, b_prim] = Vec_To_Mtx(y,ineq,n_X + 1,n_Y);
-        %             c = [zeros(n_X,1); 1];
-        %             % Solve primal optimization problem
-        %             if(lin_tolbx == 1)
-        %                 [x, fval_prim, ~, ~, lambda] = cplexlp(c, A_prim, b_prim, [], [],...
-        %                     x_lb, x_ub, [], options);
-        %             else
-        %                 [x, fval_prim, ~, ~, lambda] = linprog(c, A_prim, b_prim, [], [],...
-        %                     x_lb, x_ub, [], options);
-        %             end
-        %             x_rec(:,iter) = x;
-        %             y_rec(:,iter) = [y; fval_lb];
-        %         end
-        
+
         % Gap between lcoal minimum and lower bound is smallet than
         % toletance value; exit the algtorithm with x, y values
         if(abs(ubLocal - lbFval) < optStrct.tolGap)
@@ -261,7 +236,7 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
     % Current node is the first parent node of the new node
     pNode = nodeNum;
     while(tLevel > 1)
-        rexDualQual = [rexDualQual;treeNode(numNode).rexDualIter];
+        rexDualQual = [rexDualQual;treeNode(pNode).rexDualIter];
         tLevel = tLevel - 1;
         pNode = treeNode(pNode).pNode;
     end
@@ -282,7 +257,7 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
         
         relxConst = 0;
         for i = 1 : length(nonCnctIdx)
-           tempGrad =  double(subs(diff(lagFunc,X(nonCnctIdx(i))),X(nonCnctIdx(i)),xIter(nonCnctIdx(i))));
+           tempGrad =  double(subs(diff(lagFunc,X(nonCnctIdx(i))),X,xIter));
            if(tempGrad > 0)
                relxConst = relxConst + tempGrad * (x_lb(nonCnctIdx(i)) - xIter(nonCnctIdx(i)));
            else
@@ -297,25 +272,26 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
             treeNode(numNode).pNode = nodeNum;
             
             treePath = findpath(rexDulTree,1,botmNode(i));
-            iterX = zeros(numX,1);
+            qualX = zeros(numConctX,1);
             gradLagCons = sym(zeros(numConctX,1));
             gradLagFunc = sym(zeros(1,numConctX));
             % find value of Conncected X variables
             % find relaxed Lagrangian function and companying constraints
             for j = 1 : numConctX
                 % differentiate Lagrangian function w.r.t connected variable
-                gradLagFunc(1,j) = subs(diff(lagFunc,conctX(j)),conctX(j),xIter(xIdx(j)));
+                gradLagFunc(1,j) = subs(diff(lagFunc,conctX(j)),X,xIter);
                 if( rem(treePath(1 + j ),2) == 0 )
-                    gradLagCons(j,1) = subs(diff(lagFunc,conctX(j)),conctX(j),xIter(xIdx(j)));
-                    iterX(j) = x_ub(xIdx(j));
+                    gradLagCons(j,1) = subs(diff(lagFunc,conctX(j)),X,xIter);
+                    qualX(j) = x_ub(xIdx(j));
                 else
-                    gradLagCons(j,1) = -subs(diff(lagFunc,conctX(j)),conctX(j),xIter(xIdx(j)));
-                    iterX(j) = x_lb(xIdx(j));
+                    gradLagCons(j,1) = -subs(diff(lagFunc,conctX(j)),X,xIter);
+                    qualX(j) = x_lb(xIdx(j));
                 end
                 
             end
             ceq = 0;
-            linLag = (subs(lagFunc,X,xIter) + gradLagFunc * (iterX - xIter(xIdx))) + relxConst - Y(end) ;
+            %        lagFunc @ x_K           graident of lagFunc * (x_b - xk)      nonCnec vari  mu_b           
+            linLag = subs(lagFunc,X,xIter) + gradLagFunc * (qualX - xIter(xIdx)) + relxConst - Y(end) ;
             rexDualIter = [linLag;gradLagCons];
             treeNode(numNode).rexDualIter = rexDualIter;
             
@@ -354,17 +330,17 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
         APoy = zeros(1,numY + 1);
         bPoy = zeros(1,1);
         
-        iterX = zeros(numX,1);
+        qualX = zeros(numX,1);
         % find value of nonConnected X variables
         for j = 1:length(fxX)
             if(fxVal(j) == 1)
-                iterX(fxX(j) == X) = x_ub(fxX(j) == X);
+                qualX(fxX(j) == X) = x_ub(fxX(j) == X);
             else
-                iterX(fxX(j) == X) = x_lb(fxX(j) == X);
+                qualX(fxX(j) == X) = x_lb(fxX(j) == X);
             end
         end
         
-        rexDual = subs(lagFunc,X(1:end-1),iterX);
+        rexDual = subs(lagFunc,X(1:end-1),qualX);
         
         [cx,tx] = coeffs(rexDual,Y); cx = double(cx);
         [~,ia,ib] = intersect(tx,Y);
@@ -473,7 +449,7 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
 %     xticks(1:1:numX);
     pause(0.5);
 end
-optmRslts.x = x;
+optmRslts.x = xIter;
 optmRslts.y = y;
 optmRslts.nodeNum = nodeNum;
 optmRslts.numNode = numNode;

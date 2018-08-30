@@ -9,8 +9,8 @@ N = 4;                               % DOF of the whole structure
 masses = 6 * ones(N, 1);             % kg
 iniSpring = 35 * ones(N, 1);       % N/m
 n_modes = 4;                        % number of measured mode shapes
-dmgLoc = [1 3 ];
-alpha_act = [0.2 -0.5];
+dmgLoc = [1 2 3 4];
+alpha_act = [0.2 -0.5 0.3 -0.3];
 
 tolGap = 1e-5;
 
@@ -109,7 +109,7 @@ nlinOptions = optimoptions('fmincon','Display','off',...
 fun_orig = @(x) Obj_dynamicresidual(x,K0,M0,K_j,lambdaExp, psiExp_m,weight);
 polynomial = [ineq,;bound];
 inptStrct = struct('y0', y0, 'polynomials',polynomial,'numX',numX);
-iter_limit = 1000;
+iter_limit = 1e5;
 optStrct = struct('tolGap',tolGap,'iterLimt',iter_limit,'x_lb',x_lb,...
                     'x_ub',x_ub,'y_lb',y_lb,'y_ub',y_ub,'lcaSearch',1,...
                     'xOption',1);
