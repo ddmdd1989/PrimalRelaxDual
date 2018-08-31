@@ -8,12 +8,12 @@ warning('off');
 N = 4;                               % DOF of the whole structure
 masses = 6 * ones(N, 1);             % kg
 iniSpring = 35 * ones(N, 1);       % N/m
-n_modes = 1;                        % number of measured mode shapes
-% dmgLoc = [1 2 3 4];
-% alpha_act = [0.2 -0.5 0.3 -0.3];
+n_modes = 3;                        % number of measured mode shapes
+dmgLoc = [1 2 3 4];
+alpha_act = [0.2 -0.5 0.3 -0.3];
 
-dmgLoc = [1 4];
-alpha_act = [0.2 -0.5];
+% dmgLoc = [1 4];
+% alpha_act = [0.2 -0.5];
 
 tolGap = 1e-5;
 
@@ -105,10 +105,9 @@ optm = subs(ineq,[X;Y(1:end - 1)], [alpha_act'; reshape(psiExp_u,length(unmeasDO
 
 y0 = zeros(length(unmeasDOFs) * n_modes,1);
 
-prim = matlabFunction(subs(ineq,Y(1 : end - 1), y0),'Optimize',false,'Vars',{X});
 
 nlinOptions = optimoptions('fmincon','Display','off',...
-    'algorithm','sqp','MaxFunEvals',5e5,'MaxIter',1e5);
+    'algorithm','active-set','MaxFunEvals',5e5,'MaxIter',1e5);
 
 fun_orig = @(x) Obj_dynamicresidual(x, K0, M0, K_j, lambdaExp, psiExp_m, weight);
 polynomial = [ineq; bound];
