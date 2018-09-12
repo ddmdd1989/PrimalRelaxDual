@@ -414,9 +414,9 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
                 treeNode(numNode).fval = yTemp(end);
                 % ToDO: how useful is following code
                 % make sure y value is updated from the iteration
-                % if(norm(yTemp(1:numY) - y) > 1e-7)
-                intRes = [intRes [yTemp; numNode]];
-                % end
+                if(norm(yTemp(1:numY) - y) > 1e-7)
+                    intRes = [intRes [yTemp; numNode]];
+                end
             end
         end
     else
@@ -475,9 +475,9 @@ while( abs( lbFval - ubIter) > optStrct.tolGap && ...
             treeNode(numNode).yVal = yTemp(1:numY);
             treeNode(numNode).fval = yTemp(end);
             % make sure y value is updated from the iteration
-            % if(norm(yTemp(1:numY) - y) > 1e-5)
-            intRes = [intRes [yTemp; numNode]];
-            % end
+            if(norm(yTemp(1:numY) - y) > 1e-5)
+                intRes = [intRes [yTemp; numNode]];
+            end
         end
     end
     

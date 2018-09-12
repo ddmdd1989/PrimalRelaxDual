@@ -107,7 +107,7 @@ y0 = zeros(length(unmeasDOFs) * n_modes,1);
 
 
 nlinOptions = optimoptions('fmincon','Display','off',...
-    'algorithm','active-set','MaxFunEvals',5e5,'MaxIter',1e5);
+    'algorithm','active-set','MaxFunEvals',5e4,'MaxIter',1e4);
 
 fun_orig = @(x) Obj_dynamicresidual(x, K0, M0, K_j, lambdaExp, psiExp_m, weight);
 polynomial = [ineq; bound];
