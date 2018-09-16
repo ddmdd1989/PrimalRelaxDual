@@ -1,4 +1,4 @@
-function [polynomial,bnd] = MDR_Vector_Alpha(K0, M0, K_j, lambdaExp, psiExp_m, lb, ub)
+function polynomial = MDR_Vector_Alpha(K0, M0, K_j, lambdaExp, psiExp_m)
 
 n_modes = length(lambdaExp);
 n_alpha = size(K_j,3);
@@ -33,14 +33,6 @@ for i = 1:n_eq
     polynomial(i,1) = resPoly(i) - X(end);
     polynomial(n_eq + i,1) = -X(end) - resPoly(i);
 end
-
-%% Boundary constraints
-for i = 1:n_alpha
-    bnd(i ,1) = sym(lb(i)) - X(i);
-    bnd(n_alpha + 1 +  i,1) = X(i) - sym(ub(i));
-end
-
-bnd(n_alpha + 1 ,1) = -X(end);
 
 
 

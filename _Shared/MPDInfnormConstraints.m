@@ -1,4 +1,4 @@
-function [c,ceq] = Obj_propertydiff_constraints_infnorm(x, K0, M0, K_j, lambdaExp, psiExp_m, q, eigWeight)
+function [cineq, ceq] = MPDInfnormConstraints (x, K0, M0, K_j, lambdaExp, psiExp_m, q, eigWeight)
 
 n_modes = length(lambdaExp);
 n_alpha = size(K_j,3);
@@ -69,6 +69,6 @@ for j = 1 : length(polyDiff)
     y_neg(j,1) = -x(end) - polyDiff(j);
 end
 
-c = [y_pos;y_neg];
+cineq = [y_pos;y_neg];
 ceq = [];
 end

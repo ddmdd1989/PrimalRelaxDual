@@ -1,8 +1,12 @@
-function [ineqPoly,bndPoly] = MPD_Vector_Alpha(K0, M0, K_j, lambdaExp, psi_m, q, eig_weight, lb, ub)
+function ineqPoly = MPD_Vector_Alpha(K0, M0, K_j, lambdaExp, psi_m, q, eig_weight)
 
 %x(1:n_alpha): stiffeness parameter (alpha);
 %x(n_alpha + 1:n_alpha + numModes): Lambda_a;
 %x(end): upper limit of one norm of modal property difference vector
+%  
+% Output:
+%   ineqPoly
+%   bndPoly
 
 n_modes = length(lambdaExp);
 n_alpha = size(K_j,3);
@@ -75,15 +79,6 @@ for i = 1:n_eq
     ineqPoly(i,1) = diffPoly(i) - X(end);
     ineqPoly(n_eq + i,1) = -X(end) - diffPoly(i) ;
 end
-
-bndPoly = sym(zeros(2 * (n_X) - 1,1));
-
-for i = 1:(length(Y) - 1)
-    bndPoly(i ,1) = sym(lb(i)) - X(i);
-    bndPoly(n_X +  i,1) = X(i) - sym(ub(i));
-    
-end
-bndPoly(n_X ,1) = -X(end);
 
 
 
