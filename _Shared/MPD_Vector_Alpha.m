@@ -1,12 +1,30 @@
-function ineqPoly = MPD_Vector_Alpha(K0, M0, K_j, lambdaExp, psi_m, q, eig_weight)
+function ineqPoly = MPD_Vector_Alpha(K0, M0, K_j, lambdaExp, psi_m, q, eigWeight)
 
-%x(1:n_alpha): stiffeness parameter (alpha);
-%x(n_alpha + 1:n_alpha + numModes): Lambda_a;
-%x(end): upper limit of one norm of modal property difference vector
-%  
+% function ineqPoly = MPD_Vector_Alpha(K0, M0, K_j, lambdaExp, psi_m, q, eigWeight)
+%   (c) Yang Wang, Xinjun Dong (all rights reserved)
+%       School of Civil and Environmental Engineering
+%       Georgia Institute of Technology
+%       2018
+%
+% This function using MATLAB symbolic toolbox to formualate the constraints
+% of the eigenvector difference formulation for solving the problem with
+% either Baron or P-RD optimization algorithm
+% Input: 
+%    K0 - nominal stiffness matrix (N x N), where N represents the number
+%      of DOFs of the structure;
+%    M0 - nominal mass matrix (N x N)
+%    K_j - influence matrices for each updating variable (N x N x
+%      n_alpha), where n_alpha represents the number of updating variables
+%    lambdaExp - experimental eigenvalues (n_modes x 1), where n_modes
+%      represents the number of experimental modes.
+%    psi_m - experimental eigenvectors at measured DOFs (n_m x n_modes),
+%      where n_m represents the number of measured DOFs
+%    q - the entry with the maximum magnitude in psi_m (n_modes x 1)
+%      In this formualtion, it is assumed that psi_m is normalized that the
+%      maximum entry equa to 1, i.e. psi_m(q) =  1;
+%    eigWeight - weighing factor for the eigenvalue equation (N * n_modes)
 % Output:
-%   ineqPoly
-%   bndPoly
+%   ineqPoly - the constriants of the eigenvector difference formulation
 
 n_modes = length(lambdaExp);
 n_alpha = size(K_j,3);
@@ -17,7 +35,6 @@ num_measDOF_r = num_measDOF - 1;
 
 
 X = sym('x',[n_alpha + n_modes + 1,1]);
-n_X = length(X);
 Y = sym('y',[(N-1) * n_modes,1]);
 
 % Stiffness parameter
@@ -67,7 +84,7 @@ eigCons = sym(zeros(N * n_modes,1));
 for i = 1:n_modes
     lambdaDiff(i,1) = (lambdaExp(i) - lambdaSim(i)) / lambdaExp(i);
     psiDiff((i-1) * num_measDOF_r + 1 : i * num_measDOF_r,1) = psi_mR(:,i) -  psiSim_mR(:,i);
-    eigCons((i - 1) * N  + 1: i * N,1) = eig_weight *  (K0 - lambdaSim(i) * M0) * psiSim(:,i);
+    eigCons((i - 1) * N  + 1: i * N,1) = eigWeight(:,i) .*  (K0 - lambdaSim(i) * M0) * psiSim(:,i);
 end
 
 diffPoly = [lambdaDiff; psiDiff; eigCons];
