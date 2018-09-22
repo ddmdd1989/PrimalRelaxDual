@@ -4,12 +4,12 @@ clear;
 
 %% Basis parameter
 
-N = 4;                               % DOF of the whole structure
+N = 2;                               % DOF of the whole structure
 masses = 6 * ones(N, 1);             % kg
 iniSpring = 35 * ones(N, 1);       % N/m
-n_modes = 4;                        % number of measured mode shapes
-dmgLoc = [1 2 3 4];
-alpha_act = [0.2 -0.5 0.3 -0.3];
+n_modes = 1;                        % number of measured mode shapes
+dmgLoc = 2;
+alpha_act = -0.2;
 
 
 tolGap = 1e-5;
@@ -20,8 +20,8 @@ for i = 1:length(dmgLoc)
 end
 
 %% Damaged strucuture
-measDOFs = [1;2;3];
-unmeasDOFs = 4;
+measDOFs = 1;
+unmeasDOFs = 2;
 
 
 M0 = makeM(masses, N);
@@ -90,17 +90,19 @@ numX = length(X) - 1;  %% actual number of X variable
 Y = sym('y',[length(unmeasDOFs) * n_modes,1]);
 numY = length(Y);
 
-x_lb = [-0.5 * ones(n_alpha,1);   0];
-x_ub = [ 0.5 * ones(n_alpha,1); inf];
+x_lb = [-ones(n_alpha,1);   0];
+x_ub = [ ones(n_alpha,1); inf];
 
-y_lb =  [-3 * ones(length(unmeasDOFs) * n_modes,1); -inf];
-y_ub =  [ 3 * ones(length(unmeasDOFs) * n_modes,1);  inf];
+y_lb =  [-2 * ones(length(unmeasDOFs) * n_modes,1); -inf];
+y_ub =  [ 2 * ones(length(unmeasDOFs) * n_modes,1);  inf];
 
 
-ineq = MDR_Vector_Alpha(K0, M0, K_j, lambdaExp, psiExp_m);
-optm = subs(ineq,[X;Y],[alpha_act';0;reshape(psiExp_u,length(unmeasDOFs) * n_modes,1)]);
+resdIneq = MDR_Vector_Alpha(K0, M0, K_j, lambdaExp, psiExp_m);
 
-[coeffX, constX] = PolyCoeffs(ineq, numX + 1, numY);
+% double check that optm should be close to zeros
+optm = subs(resdIneq,[X;Y],[alpha_act';0;reshape(psiExp_u,length(unmeasDOFs) * n_modes,1)]);
+
+[coeffX, constX] = PolyCoeffs(resdIneq, numX + 1, numY);
 
 rng(2);
 
@@ -116,7 +118,7 @@ iterLimit = 1e5;
 optimzProb = struct('y0', y0,'coeffX',coeffX,'constX',constX);
 
 optimzOpts = struct('tolGap',tolGap,'iterLimt',iterLimit,'x_lb',x_lb,...
-                    'x_ub',x_ub,'y_lb',y_lb,'y_ub',y_ub,'lcaSearch',1,...
+                    'x_ub',x_ub,'y_lb',y_lb,'y_ub',y_ub,'lcaSearch',0,...
                     'linTolbx',2,'xOption',1);
 localOptm = struct('lcaObj',fun_orig,'lcaCons',nonlcon);
 

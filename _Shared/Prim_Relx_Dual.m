@@ -51,8 +51,8 @@ function optmRslts = Prim_Relx_Dual(optimzProb, optimzOpts, localOptm,...
 %     nodeNum - node number of optimal result in branch and bound tree
 %     numNodes - total number of node in the branch and bound tree
 %     K - iteration number of primal-relaxed dual optimization algorithm
-%     xRec - record of X variable values during optimization process
-%     yRec - record of Y variable values during optimization process
+%     xHist - record of X variable values during optimization process
+%     yHist - record of Y variable values during optimization process
 %     treeNode - structure represents the nodes in the branch and bound tree
 %     lbFval - lower bound of objective function value
 %     ubFval - upper bound of objective function value
@@ -64,8 +64,8 @@ function optmRslts = Prim_Relx_Dual(optimzProb, optimzOpts, localOptm,...
 %     nodeNum - node number of optimal result in branch and bound tree
 %     numNodes - total number of node in the branch and bound tree
 %     K - iteration number of primal-relaxed dual optimization algorithm
-%     xRec - record of X variable values during optimization process
-%     yRec - record of Y variable values during optimization process
+%     xHist - record of X variable values during optimization process
+%     yHist - record of Y variable values during optimization process
 %     treeNode - structure represents the nodes in the branch and bound tree
 %     lbFval - lower bound of objective function value
 %     ubFval - upper bound of objective function value
@@ -112,16 +112,16 @@ if(nargin < 4)
     lbFval = 1e5;
     ubFval = inf;
     % Data structure for primal relaxed branch and bound tree
-    %  -nodeLvl: level of node in the branch and bound tree
-    %  -pNode: parent node in the branch and bound tree
-    %  -yVal: fixed value of Y variables
+    %    nodeLvl: level of node in the branch and bound tree
+    %    pNode: parent node in the branch and bound tree
+    %    yVal: fixed value of Y variables
     % For the optimization problem minimizing muB, all affine inequalities
     % at the current K-th iteration, including the qualifying Lagrangian
     % and accompanying derivative constraints while excluding the bounds,
     % are expressed as
     %            [ADualK] * {y; muB} <= {bDualK}
-    %  -ADualK : matrix [ADualK]
-    %  -bDualK : vector {bDualK}
+    %    ADualK : matrix [ADualK]
+    %    bDualK : vector {bDualK}
     
     % root node in the branch and bound tree
     treeNode(1) = struct('nodeLvl', 1, 'pNode', 0, 'yVal', optimzProb.y0,...
@@ -130,7 +130,7 @@ if(nargin < 4)
     numNodes = 1;
     K = 0;
     
-    xRec = []; yRec = [];
+    xHist = []; yHist = [];
     
 else
     disp("Picking up from previous results");
@@ -144,54 +144,21 @@ else
     
     K = intmRslts.K;
     
-    xRec = intmRslts.xRec; yRec = intmRslts.yRec;
+    xHist = intmRslts.xHist; yHist = intmRslts.yHist;
     
-    fvalCand = intmRslts.fvalCand;
-    yValCand = intmRslts.yValCand;
-    nodeNumCand = intmRslts.nodeNumCand;
     
 end
 ubLocal = inf;
-ubFvalK = inf;
 fprintf(header);
+
+SolvePrimal;
+
 while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
         K < optimzOpts.iterLimt)
-    % NodeNum - node number of smallest lower bound value -> parent node
-    % for the new nodes
-    
-    % Level of current node (first level to backtrack for qualifying constraints)
-    tLevel = treeNode(nodeNum).nodeLvl;
-    % nLvl: Level for new node in the branch and bound tree
-    nLvl = tLevel + 1;
-    if(K == 1)
-        % Fixed yK value for solving primal problem
-        yK = treeNode(nodeNum).yVal;
-        % Construct primal problem with new fixed yK value
-        %
-        %       minimize  c' * x
-        %          x
-        %     subject to  A * x <= b
-        %            x_lb <= x <= x_ub
-        A_prim = zeros(size(coeffX,1),numX + 1);
-        for i = 1: numX + 1
-            A_prim(:,i) = coeffX(:,:,i) * [yK; 1];
-        end
-        b_prim = -constX * [yK; 1];
-        c = [zeros(numX,1); 1];
-        % Solve primal optimization problem
-        % lambda:  
-        % lambda.ineqlin: muK
-        if(optimzOpts.linTolbx == 1)
-            [xPrim, ubFvalK, ~, ~, lambda] = cplexlp(c, A_prim, b_prim, [], [],...
-                x_lb, x_ub, [], linOptions);
-        else
-            [xPrim, ubFvalK, ~, ~, lambda] = linprog(c, A_prim, b_prim, [], [],...
-                x_lb, x_ub, [], linOptions);
-        end
-    end
     % Record the x and yK values during optimization process
-    xRec = [xRec xPrim];
-    yRec = [yRec [yK; lbFval]];
+    xHist = [xHist xPrim];
+    yHist = [yHist [yK; lbFval]];
+    
     % Do local search using updated x and yK values as initial values
     if(optimzOpts.lcaSearch)
         if(optimzOpts.xOption == 1)
@@ -245,8 +212,8 @@ while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
             optmRslts.nodeNum = nodeNum;
             optmRslts.numNodes = numNodes;
             optmRslts.K =  K;
-            optmRslts.xRec = xRec;
-            optmRslts.yRec = yRec;
+            optmRslts.xHist = xHist;
+            optmRslts.yHist = yHist;
             optmRslts.treeNode = treeNode;
             optmRslts.lbFval = lbFval;
             optmRslts.ubFval = ubLocal;
@@ -255,158 +222,198 @@ while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
         end
         
     end
- 
+    
     % Update upper bound of the objective function
     ubFval = min([ubFval ubFvalK ubLocal]);
     
-    
-    % Lagrangian function substituted by xPrim
-    % Example:  x2K is delta (not included in numX), and x2 is a
-    % non-connected variable with Y.
-    %      muK * (35.0 * x1K - 1.0 * x2K - 25.0 * y1 - 15.0 * x1K * y1 + 58.0)
-    % Lag: 1 x (numY + 1). The entries are
-    %      1 ~ numY: coefficients in front of Y_j
-    %                Example: muK * (- 25.0 - 15.0 * x1K)
-    %      (numY + 1): 
-    %                Example: muK * (35.0 * x1K + 58.0)
-    Lag = zeros(1,numY + 1);
-    
-    for i = 1 : numX
-        Lag = Lag + xPrim(i) *  lambda.ineqlin' * coeffX(:,:,i);
-    end
-    Lag = Lag +  lambda.ineqlin' * constX;
-    
-    yLag = [Lag(1 : end - 1) -1];
-    bLag = Lag(end);
-    
-    yGrad = zeros(numX, numY);
-    bGrad = zeros(numX,1);
-    
-    for i = 1 : numX
-        yGrad(i,:)  =  lambda.ineqlin' * coeffX(:,1 : end - 1, i);
-        bGrad(i) = lambda.ineqlin' * coeffX(:, end, i) - lambda.lower(i) + lambda.upper(i);
-    end
-    
-    delIdx = [];
-    for i = 1 : numX
-        if(max(abs(yGrad(i,:))) < 1e-5)
-            delIdx = [delIdx i];
-        end
-    end
-    
-    conctIdx = setdiff( 1 : numX, delIdx);
-    numConctX = length(conctIdx);
-    yGrad = yGrad(conctIdx,:);
-    bGrad = bGrad(conctIdx);
-    
     %% Find qualifying constraints for relaxed subproblem
+    % Level of current node (first level to backtrack for qualifying constraints)
+    tLevel = treeNode(nodeNum).nodeLvl;
+    % nLvl: Level for new node in the branch and bound tree
+    nLvl = tLevel + 1;
     AQual = []; bQual = [];
+    % NodeNum - node number of smallest lower bound value -> parent node
+    % for the new nodes
     % Current node is the first parent node of the new node
     pNode = nodeNum;
-    while(tLevel > 1)
+    
+    % Add constraints into Rc1 set
+    %       D_(x_j ) L^l (x,y;?^l,?^l ) |_(x^l ) ? 0
+    %  or   D_(x_j ) L^l (x,y;?^l,?^l ) |_(x^l ) ? 0
+    %  and  ?_B  ?  L^l (B_l,y;?^l,?^l ) |_(x^l)^lin
+    % All constraints are affine and represented in the format
+    %         [AQual] * {y; muB} <= {bQual}
+    while (tLevel > 1)
         AQual = [AQual; treeNode(pNode).ADualK];
         bQual = [bQual; treeNode(pNode).bDualK];
         tLevel = tLevel - 1;
         pNode = treeNode(pNode).pNode;
     end
+    
+    % Lagrangian function substituted by xPrim
+    % The linearized Lagrange function L^k (x^B,y;?^k,?^k ) |_(x^k)^lin is:
+    %       L^k (x^k, y; ?^k, ?^k) + ? D_x L^k (x,y;?^k,?^k )?|_(x^k )?(x^B-x^k )
+    % Varibles yLag, bLag, yGrad, bGrad will be formed to represent the
+    % function as
+    %           A * y ? b
+    % Lag stores coefficents of y and the constant for the first part
+    %       L^k (x^k, y; ?^k, ?^k).
+    % Therefore, dimension of Lag is 1 x (numY + 1). The entries are
+    %      1 ~ numY: coefficients in front of Y_j
+    %      (numY + 1):
+    %
+    % Example:  x2K is delta (not included in numX), and x2 is a
+    % non-connected variable with Y.
+    %      muK * (35.0 * x1K - 1.0 * x2K - 25.0 * y1 - 15.0 * x1K * y1 + 58.0)
+    % Entries 1 ~ numY: coefficients in front of Y_j
+    %      Example: muK * (- 25.0 - 15.0 * x1K)
+    % Entries (numY + 1):
+    %      Example: muK * (35.0 * x1K + 58.0)
+    
+    Lag = zeros(1,numY + 1);
+    
+    % delta is always a non-connected variable, therefore does not exist in
+    % the Lagrange function. There are numX number of connected variables,
+    % including updating variables alpha for modal dynamic residual
+    % approach (and simulated eigenvalues for the bilinear P-RD formulation
+    % minimizing modal property differences).
+    for i = 1 : numX
+        Lag = Lag + xPrim(i) *  lambda.ineqlin' * coeffX(:,:,i);
+    end
+    Lag = Lag +  lambda.ineqlin' * constX;
+    
+    % Insert -1 for muB, as in moving muB to the other side of the
+    % inequality
+    %   {L^K (B^j,y;?^K,?^K ) |_(x^K)^lin} - muB <= 0
+    % At this point of the code, we only have part of the function.
+    %    L^k (x^k, y; ?^k, ?^k) - muB
+    % The derivative/gradient term
+    %           ? D_x L^k (x,y;?^k,?^k )?|_(x^k )?(x^B-x^k )
+    % will be calculated and added after.
+    yLag = [Lag(1 : end - 1)   -1];  % Insert -1 for muB,
+    
+    % Original storage represents A * y + b, move b to the RHS as
+    %       A * y <= -b
+    bLag = -Lag(end);
+    
+    % Find the derivative function, a function of y:
+    %       ? D_x L^k (x,y;?^k,?^k )?|_(x^k )
+    % Express first as    A * y + b    ,
+    % before multiplying (x^B-x^k ) later
+    yGrad = zeros(numX, numY);
+    bGrad = zeros(numX, 1);
+    
+    for i = 1 : numX
+        % coeffX(:, 1 : end - 1, i) contains coefficients of Y
+        yGrad(i,:)  =  lambda.ineqlin' * coeffX(:, 1 : end - 1, i);
+        
+        % coeffX(:, end, i) has the constant coefficients
+        % Two bound inequalities (lb - x ? 0   and   x - ub ? 0) go into
+        % the Lagrangian as
+        %   lambda_lb * (lb - x) + lambda_ub * (x - ub)
+        % Upon taking derivative, a negative sign exits for lambda_lb
+        bGrad(i) = lambda.ineqlin' * coeffX(:, end, i) - lambda.lower(i) + lambda.upper(i);
+    end
+    
+    % Find connected variables
+    conctIdx = [];
+    maxAbsYGrad = max(max(abs(yGrad)));
+    for i = 1 : numX
+        if(max( abs( yGrad(i,:) ) ) > eps * maxAbsYGrad)
+            conctIdx = [conctIdx i];
+        end
+    end
+    
+    numConctX = length(conctIdx);
+    yGrad = yGrad(conctIdx,:);
+    bGrad = bGrad(conctIdx);
+    
+    
     %% Binary tree for relaxed dual subproblem
     resIter = [];
-    if(numConctX > 0)
+    
+    if (numConctX > 0)
         % number of binary tree level - numConctX
         rexDulTree = tree('root');
         for i = 1 : numConctX
             for j = 1 : (2^i)
                 if(i == 1)
-                    [rexDulTree, l1(j)] = rexDulTree.addnode(1, 0);
+                    [rexDulTree, lvl1(j)] = rexDulTree.addnode(1, 0);
                 else
-                    eval(['[rexDulTree, l' num2str(i) '(j)] = rexDulTree.addnode(l' num2str(i-1) '( (ceil(j/2)) ),0);']);
+                    eval(['[rexDulTree, lvl' num2str(i) '(j)] = rexDulTree.addnode(lvl' ...
+                        num2str(i-1) '( (ceil(j/2)) ),0);']);
                 end
             end
         end
-        eval(['botmNode = l' num2str(numConctX) ';']);
+        eval(['botmNode = lvl' num2str(numConctX) ';']);
         
-        for i = 1 : length(botmNode)
+        for j = 1 : length(botmNode)
             % Construct relaxed dual problem from current iteration
-            treePath = findpath(rexDulTree,1,botmNode(i));
+            treePath = findpath(rexDulTree, 1, botmNode(j));
             
-            ADualK = zeros(1 + numConctX, numY + 1);
-            bDualK = zeros(1 + numConctX, 1);
+            % Plus 1 for muB
+            ADualK = zeros(numConctX + 1, numY + 1);
+            bDualK = zeros(numConctX + 1, 1);
             
-            xBl = zeros(numConctX, 1);
+            xBj = zeros(numConctX, 1);  % Select B^j ? CB;
             % find value of Conncected X variables
             % find relaxed Lagrangian function and companying constraints
-            % find value of Conncected X variables
-            for j = 1 : numConctX
-                if( rem(treePath(1 + j ),2) == 0 )
-                    xBl(j) = x_ub(conctIdx(j));
-                    ADualK(1 + j, :) = [yGrad(j,:) 0];
-                    bDualK(1 + j) = -bGrad(j);
+            for i = 1 : numConctX
+                if ( rem(treePath(1 + i), 2) == 0 )
+                    xBj(i) = x_ub (conctIdx(i));
+                    % Add ? D_(x_i ) L^K (x,y;?^K,?^K )?|_(x^K )?0 into R_c2
+                    % gradeint ? 0   ->    Ay + b ? 0    ->    Ay ? -b
+                    ADualK(1 + i, :) = [yGrad(i,:) 0];
+                    bDualK(1 + i) = -bGrad(i);
                 else
-                    % gradeint > 0 -> Ay + b > 0 -> -Ay < b
-                    xBl(j) = x_lb(conctIdx(j));
-                    ADualK(1 + j, :) = [-yGrad(j,:) 0];
-                    bDualK(1 + j) = bGrad(j);
+                    % gradeint ? 0   ->    Ay + b ? 0    ->     -Ay ? b
+                    xBj(i) = x_lb (conctIdx(i));
+                    % Add ? D_(x_i ) L^K (x,y;?^K,?^K )?|_(x^K )?0 into R_c2
+                    ADualK(1 + i, :) = [-yGrad(i,:) 0];
+                    bDualK(1 + i) = bGrad(i);
                 end
             end
-            % substitute x_B into Lagrange function to form relaxed dual problem
-            ADualK(1,:) = yLag + [(xBl - xPrim(conctIdx))'  * yGrad 0];
-            bDualK(1,:) = -(bLag + (xBl - xPrim(conctIdx))' * bGrad);
             
-            if(nLvl == 2)
-                ADual = ADualK;
-                bDual = bDualK;
-            else
-                ADual = [AQual;ADualK];
-                bDual = [bQual;bDualK];
-            end
-            % minimize mu_B
-            c = [zeros(numY,1);
-                1];
+            % Add  ?_B ? L^K (B^j,y;?^K,?^K ) |_(x^K)^lin  into  R_c2
+            % The constraints are expressed as
+            %       [ADualK] * {y; muB} <= {bDualK}
+            % The linearized Lagrangian consists of
+            %   L^k(x^k,y;?^k,?^k ) +  ? D_x L^k (x,y;?^k,?^k )?|_(x^k )?(x^B-x^k )
+            ADualK(1,:) = yLag + [(xBj - xPrim(conctIdx))' * yGrad    0]; % Add 0 for muB
+            bDualK(1,:) = (bLag - (xBj - xPrim(conctIdx))' * bGrad);
             
-            if(optimzOpts.linTolbx == 1)
-                [yTemp, ~, exitflag] = cplexlp(c, ADual, bDual, [], [],...
-                    y_lb, y_ub, [], linOptions);
-            else
-                [yTemp, ~, exitflag] = linprog(c, ADual, bDual, [], [],...
-                    y_lb, y_ub, [], linOptions);
-            end
+            SolveRelaxedDual;
             
-            if(exitflag > 0)
-                yTemp(~any(ADual,1)) = yK(~any(ADual,1));
+            if (exitflag > 0)
                 % find zero column in A matrix -> correspondng yK value does
-                % not update -> use value from last iteration
-                yTemp(~any(ADual,1)) = yK(~any(ADual,1));
                 % save yK and lower bound value
-                dupSub = 1;
-                %TODO: how to handle two subproblems with exactly same
-                %answer so as to reduce computational time
-                for j = 1 : size(resIter,2)
-                    if(norm(yTemp - resIter(1 : end-1, j)) < 1e-7)
-                        dupSub = 0;
-                        CkNum = resIter(end,j);
-                        
-                        ref = [treeNode(CkNum).ADualK treeNode(CkNum).bDualK];
+                % Flag for duplicated subproblems.
+                dupSub = 0;
+                for i = 1 : size(resIter,2)
+                    if(norm(yTemp - resIter(1 : end-1, i)) < 1e-7)
+                        dupSub = 1;
+                        CkNode = resIter(end, i);
+                        ref = [treeNode(CkNode).ADualK treeNode(CkNode).bDualK];
                         chk = [ADualK bDualK];
                         [~, dupIdx] = ismembertol(chk,ref,1e-7,'ByRows',true);
-                        disIdx = setdiff(1 : size(ref,1),dupIdx);
+                        disIdx = setdiff(1 : size(ref, 1), dupIdx);
                         del_idx = [];
                         for k = 1 : length(disIdx)
-                            if(treeNode(CkNum).ADualK(disIdx(k),end) ~= -1)
-                                del_idx = [del_idx disIdx(i)];
+                            if(treeNode(CkNode).ADualK(disIdx(k),end) ~= -1)
+                                del_idx = [del_idx disIdx(k)];
                             end
                         end
-                        treeNode(CkNum).ADualK(del_idx,:) = [];
-                        treeNode(CkNum).bDualK(del_idx) = [];
+                        treeNode(CkNode).ADualK(del_idx,:) = [];
+                        treeNode(CkNode).bDualK(del_idx) = [];
                         if(~ismembertol(chk(1,:),ref,1e-7,'ByRows',true))
-                            treeNode(CkNum).ADualK = [treeNode(CkNum).ADualK; ADualK(1,:)];
-                            treeNode(CkNum).bDualK = [treeNode(CkNum).bDualK; bDualK(1)];
+                            treeNode(CkNode).ADualK = [treeNode(CkNode).ADualK; ADualK(1,:)];
+                            treeNode(CkNode).bDualK = [treeNode(CkNode).bDualK; bDualK(1)];
                         end
                         break;
                     end
                 end
                 % make sure yK value is updated from the iteration
-                if(norm(yTemp(1:numY) - yK) > 1e-7 && dupSub == 1)
-                    
+                if(norm(yTemp(1:numY) - yK) > 1e-7 && dupSub == 0)
                     numNodes = numNodes + 1;
                     resIter = [resIter [yTemp; numNodes]];
                     treeNode(numNodes).nodeLvl = nLvl;
@@ -421,43 +428,20 @@ while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
         end
     else
         % No conncected X variables
-        numNodes = numNodes + 1;
-        treeNode(numNodes).nodeLvl = nLvl;
-        treeNode(numNodes).pNode = nodeNum;
         
         ADualK = yLag;
-        bDualK = -bLag;
+        bDualK = bLag;
         
-        treeNode(numNodes).ADualK = ADualK;
-        treeNode(numNodes).bDualK = bDualK;
-        
-        if(nLvl == 2)
-            ADual = ADualK;
-            bDual = bDualK;
-        else
-            ADual = [AQual;ADualK];
-            bDual = [bQual;bDualK];
-        end
-        
-        c = [zeros(numY,1);
-            1];
-        
-        if(optimzOpts.linTolbx == 1)
-            [yTemp, ~, exitflag] = cplexlp(c, ADual, bDual, [], [],...
-                y_lb, y_ub, [], linOptions);
-        else
-            [yTemp, ~, exitflag] = linprog(c, ADual, bDual, [], [],...
-                y_lb, y_ub, [], linOptions);
-        end
-        
-        if(exitflag > 0)
-            yTemp(~any(ADual,1)) = yK(~any(ADual,1));
+        SolveRelaxedDual;
+        if(exitflag > 0 && norm(yTemp(1:numY) - yK) > 1e-5)
+            numNodes = numNodes + 1;
+            treeNode(numNodes).ADualK = ADualK;
+            treeNode(numNodes).bDualK = bDualK;
+            treeNode(numNodes).nodeLvl = nLvl;
+            treeNode(numNodes).pNode = nodeNum;
             treeNode(numNodes).yVal = yTemp(1:numY);
             treeNode(numNodes).fval = yTemp(end);
-            % make sure yK value is updated from the iteration
-            if(norm(yTemp(1:numY) - yK) > 1e-5)
-                intRes = [intRes [yTemp; numNodes]];
-            end
+            intRes = [intRes [yTemp; numNodes]];
         end
     end
     
@@ -476,35 +460,8 @@ while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
     % Remove next yK value from all result group
     intRes(:,lbFvalIdx(end)) = [];
     
-    fprintf(formatstr,K,min(ubFval,ubLocal),lbFval,ubFvalK,ubFvalK - lbFval,nodeNum,treeNode(nodeNum).pNode );
-    
-    
-    if(K > 1)
-        % Fixed yK value for solving primal problem
-        yK = treeNode(nodeNum).yVal;
-        % Construct primal problem with new fixed yK value
-        %
-        %       minimize  c' * x
-        %          x
-        %     subject to  A * x <= b
-        %            x_lb <= x <= x_ub
-        A_prim = zeros(size(coeffX,1),numX + 1);
-        for i = 1: numX + 1
-            A_prim(:,i) = coeffX(:,:,i) * [yK; 1];
-        end
-        b_prim = -constX * [yK; 1];
-        c = [zeros(numX,1); 1];
-        % Solve primal optimization problem
-        % lambda:  
-        % lambda.ineqlin: muK
-        if(optimzOpts.linTolbx == 1)
-            [xPrim, ubFvalK, ~, ~, lambda] = cplexlp(c, A_prim, b_prim, [], [],...
-                x_lb, x_ub, [], linOptions);
-        else
-            [xPrim, ubFvalK, ~, ~, lambda] = linprog(c, A_prim, b_prim, [], [],...
-                x_lb, x_ub, [], linOptions);
-        end
-    end
+    SolvePrimal;
+    fprintf(formatstr,K,min([ubFval, ubFvalK, ubLocal]) ,lbFval,ubFvalK,ubFvalK - lbFval,nodeNum,treeNode(nodeNum).pNode );
     K = K + 1;
     stem(1:numX,xPrim(1:numX),'o')
     ylim([min(x_lb(1:numX));max(x_ub(1:numX))]);
@@ -516,11 +473,12 @@ optmRslts.yK = yK;
 optmRslts.nodeNum = nodeNum;
 optmRslts.numNodes = numNodes;
 optmRslts.K =  K;
-optmRslts.xRec = xRec;
-optmRslts.yRec = yRec;
+optmRslts.xHist = xHist;
+optmRslts.yHist = yHist;
 optmRslts.treeNode = treeNode;
 optmRslts.lbFval = lbFval;
 optmRslts.ubFval = ubFval;
 optmRslts.intRes = intRes;
 end
+
 

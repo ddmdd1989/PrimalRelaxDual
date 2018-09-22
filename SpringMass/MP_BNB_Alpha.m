@@ -10,7 +10,9 @@ iniSpring = 35 * ones(N, 1);          % N/m
 
 n_modes = 2;  % number of measured mode shapes
 dmgLoc = [1 2 3 4];
+
 alpha_act = [0.2;-0.5;0.3;-0.3];
+
 actSpring = iniSpring;
 for i = 1:length(dmgLoc)
     actSpring(dmgLoc(i)) = actSpring(dmgLoc(i)) * (alpha_act(i) + 1);
@@ -106,11 +108,14 @@ end
 %% Bicvx input
 % alpha + eigenvalue + delta
 X = sym('x',[n_alpha + n_modes  + 1, 1]);
-n_X = length(X) - 1;  %% actual number of X variable
+% n_X includes all alphas and eigenvalues, but exclude delta because delta
+% gets canceled out in the Lagrangian function after solving the primal
+% problem with a fixed y at each iteration.
+numX = length(X) - 1;  %% actual number of X variable
 
 %% Eigenvector except for qi-th entry
 Y = sym('y',[(N-1) * n_modes,1]);
-
+numY= length(Y);
 
 x_lb = [alpha_lb;lambdaExp * 0.5;0];
 x_ub = [alpha_ub;lambdaExp * 1.5;inf];
@@ -120,15 +125,21 @@ y_ub = [ 2 * ones((N - 1) * n_modes,1); inf];
 
 n_Y = (N - 1) * n_modes;
 
-eig_weight = 1/norm(K0);
-[ineqPoly,bndPoly] = MPD_Vector_Alpha(K0, M0, K_j, lambdaExp, psiExp_m, q, eig_weight, x_lb, x_ub);
+eigWeight = 1/norm(K0) * ones(N , n_modes);
+% inequalities: greater than negative delta, followed by
+%               less than positive delta 
+%    Need a bound for delta to use MATLAB toolboxes while it is
+%    mathematically unnecessary.
+% x_boxes: lower bounds of alpha, lambda, delta, followed by
+%    upper bounds of alpha and lambda (no delta).
+inequalities = MPD_Vector_Alpha(K0, M0, K_j, lambdaExp, psiExp_m, q, eigWeight);
+[coeffX, constX] = PolyCoeffs(inequalities, numX + 1, numY);
 
 Opt = [alpha_act; lambdaExp; 0;  reshape(psi_mR,(length(measDOFs)- 1) * n_modes,1); reshape(psiExp_u,length(unmeasDOFs) * n_modes,1)];
 Ini = [zeros(n_alpha,1);lambdaSim;0;reshape(psiSim_mR,(length(measDOFs)- 1) * n_modes,1);reshape(psiSim_u,length(unmeasDOFs) * n_modes,1)];
-opt_ineqal = subs(ineqPoly,[X;Y],Opt);
-ini_ineqal = subs(ineqPoly,[X;Y],Ini);
+opt_ineqal = subs(inequalities,[X;Y],Opt);
+ini_ineqal = subs(inequalities,[X;Y],Ini);
 
-polynomial = [ineqPoly;bndPoly];
 % y0 = [reshape(V_maR, (length(MDOF)-1) * numModes,1);reshape(V_ua,length(UDOF) * numModes,1)];
 rng(3)
 % y0 = y_lb + (y_ub - y_lb) .* rand(length(y_ub),1);
@@ -137,21 +148,21 @@ y0 = zeros((N - 1) * n_modes,1);
 % y0 = y_ub(1:end-1);
 weight = ones(n_modes,1);
 fun_orig = @(x) objfun_infnorm(x);
-nonlcon = @(x)Obj_propertydiff_constraints_infnorm(x, K0, M0, K_j,lambdaExp, psiExp_m, q, eig_weight);
+nonlcon = @(x) MPDInfnormConstraints(x, K0, M0, K_j,lambdaExp, psiExp_m, q, eigWeight);
 
 
-iter_limit = 1e5;
+iterLimit = 1e5;
 tolGap = 1e-5;
-Inpt_Strct = struct('y0', y0, 'polynomials',polynomial,'numX',n_X);
-Opt_Strct = struct('tolGap',tolGap,'iterLimt',iter_limit,'x_lb',x_lb,...
+optimzProb = struct('y0', y0,'coeffX',coeffX,'constX',constX);
+optimzOpts = struct('tolGap',tolGap,'iterLimt',iterLimit,'x_lb',x_lb,...
                     'x_ub',x_ub,'y_lb',y_lb,'y_ub',y_ub,'lcaSearch',0,...
                     'linTolbx',2,'xOption',1);
-Loc_Strct = struct('lcaObj',fun_orig,'lcaCons',nonlcon);
+localOptm = struct('lcaObj', fun_orig, 'lcaCons', nonlcon);
 
 
 tic
 
-final_result = Prim_Relx_Dual(Inpt_Strct,Opt_Strct,Loc_Strct);
+final_result = Prim_Relx_Dual(optimzProb,optimzOpts,localOptm);
 
 t_plex = toc;
 
