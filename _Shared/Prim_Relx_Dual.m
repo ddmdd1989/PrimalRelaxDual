@@ -105,7 +105,7 @@ nlinOptions = optimoptions('fmincon','Display','off',...
 
 if(nargin < 4)
     % Starting from new inital value
-    disp("Starting from new initial value");
+    disp('Starting from new initial value');
     % Store intermediate results
     intRes = [];
     % Initilize lower and upper bounds of objective function value
@@ -133,7 +133,7 @@ if(nargin < 4)
     xHist = []; yHist = [];
     
 else
-    disp("Picking up from previous results");
+    disp('Picking up from previous results');
     intRes = intmRslts.intRes;
     lbFval = intmRslts.lbFval;
     ubFval = intmRslts.ubFval;
@@ -154,7 +154,7 @@ fprintf(header);
 SolvePrimal;
 
 while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
-        K < optimzOpts.iterLimt)
+        K < optimzOpts.Kmax)
     % Record the x and yK values during optimization process
     xHist = [xHist xPrim];
     yHist = [yHist [yK; lbFval]];
@@ -347,30 +347,30 @@ while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
         end
         eval(['botmNode = lvl' num2str(numConctX) ';']);
         
-        for j = 1 : length(botmNode)
+        for i = 1 : length(botmNode)
             % Construct relaxed dual problem from current iteration
-            treePath = findpath(rexDulTree, 1, botmNode(j));
+            treePath = findpath(rexDulTree, 1, botmNode(i));
             
             % Plus 1 for muB
             ADualK = zeros(numConctX + 1, numY + 1);
             bDualK = zeros(numConctX + 1, 1);
             
-            xBj = zeros(numConctX, 1);  % Select B^j ? CB;
+            Bi_j = zeros(numConctX, 1);  % Select B^j ? CB;
             % find value of Conncected X variables
             % find relaxed Lagrangian function and companying constraints
-            for i = 1 : numConctX
-                if ( rem(treePath(1 + i), 2) == 0 )
-                    xBj(i) = x_ub (conctIdx(i));
+            for j = 1 : numConctX
+                if ( rem(treePath(1 + j), 2) == 0 )
+                    Bi_j(j) = x_ub (conctIdx(j));
                     % Add ? D_(x_i ) L^K (x,y;?^K,?^K )?|_(x^K )?0 into R_c2
                     % gradeint ? 0   ->    Ay + b ? 0    ->    Ay ? -b
-                    ADualK(1 + i, :) = [yGrad(i,:) 0];
-                    bDualK(1 + i) = -bGrad(i);
+                    ADualK(1 + j, :) = [yGrad(j,:) 0];
+                    bDualK(1 + j) = -bGrad(j);
                 else
                     % gradeint ? 0   ->    Ay + b ? 0    ->     -Ay ? b
-                    xBj(i) = x_lb (conctIdx(i));
+                    Bi_j(j) = x_lb (conctIdx(j));
                     % Add ? D_(x_i ) L^K (x,y;?^K,?^K )?|_(x^K )?0 into R_c2
-                    ADualK(1 + i, :) = [-yGrad(i,:) 0];
-                    bDualK(1 + i) = bGrad(i);
+                    ADualK(1 + j, :) = [-yGrad(j,:) 0];
+                    bDualK(1 + j) = bGrad(j);
                 end
             end
             
@@ -379,8 +379,8 @@ while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
             %       [ADualK] * {y; muB} <= {bDualK}
             % The linearized Lagrangian consists of
             %   L^k(x^k,y;?^k,?^k ) +  ? D_x L^k (x,y;?^k,?^k )?|_(x^k )?(x^B-x^k )
-            ADualK(1,:) = yLag + [(xBj - xPrim(conctIdx))' * yGrad    0]; % Add 0 for muB
-            bDualK(1,:) = (bLag - (xBj - xPrim(conctIdx))' * bGrad);
+            ADualK(1,:) = yLag + [(Bi_j - xPrim(conctIdx))' * yGrad    0]; % Add 0 for muB
+            bDualK(1,:) = (bLag - (Bi_j - xPrim(conctIdx))' * bGrad);
             
             SolveRelaxedDual;
             
@@ -389,10 +389,10 @@ while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
                 % save yK and lower bound value
                 % Flag for duplicated subproblems.
                 dupSub = 0;
-                for i = 1 : size(resIter,2)
+                for j = 1 : size(resIter,2)
                     if(norm(yTemp - resIter(1 : end-1, i)) < 1e-7)
                         dupSub = 1;
-                        CkNode = resIter(end, i);
+                        CkNode = resIter(end, j);
                         ref = [treeNode(CkNode).ADualK treeNode(CkNode).bDualK];
                         chk = [ADualK bDualK];
                         [~, dupIdx] = ismembertol(chk,ref,1e-7,'ByRows',true);
@@ -428,7 +428,6 @@ while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
         end
     else
         % No conncected X variables
-        
         ADualK = yLag;
         bDualK = bLag;
         
