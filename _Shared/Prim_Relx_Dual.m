@@ -390,7 +390,7 @@ while( abs( lbFval - ubFvalK) > optimzOpts.tolGap && ...
                 % Flag for duplicated subproblems.
                 dupSub = 0;
                 for j = 1 : size(resIter,2)
-                    if(norm(yTemp - resIter(1 : end-1, i)) < 1e-7)
+                    if(norm(yTemp - resIter(1 : end-1, j)) < 1e-7)
                         dupSub = 1;
                         CkNode = resIter(end, j);
                         ref = [treeNode(CkNode).ADualK treeNode(CkNode).bDualK];
