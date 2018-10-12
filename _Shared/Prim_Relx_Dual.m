@@ -96,8 +96,8 @@ if (optimzOpts.linTolbx == 1)
     linOptions = cplexoptimset(linOptions,'lpmethod',1);
 else
     % linprog options
-    linOptions = optimoptions('linprog', 'Display', 'off',...
-        'MaxIterations', 1e8, 'ConstraintTolerance', 1e-9);
+    linOptions = optimoptions('linprog', 'Display', 'off');%,...
+%         'MaxIterations', 1e8, 'ConstraintTolerance', 1e-9);
 end
 % nonlinear solver options - do local search with fmincon
 nlinOptions = optimoptions('fmincon','Display','off',...

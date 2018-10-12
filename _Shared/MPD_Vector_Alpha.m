@@ -84,7 +84,8 @@ eigCons = sym(zeros(N * n_modes,1));
 for i = 1:n_modes
     lambdaDiff(i,1) = (lambdaExp(i) - lambdaSim(i)) / lambdaExp(i);
     psiDiff((i-1) * num_measDOF_r + 1 : i * num_measDOF_r,1) = psi_mR(:,i) -  psiSim_mR(:,i);
-    eigCons((i - 1) * N  + 1: i * N,1) = eigWeight(:,i) .*  (K0 - lambdaSim(i) * M0) * psiSim(:,i);
+    %     eigCons((i - 1) * N  + 1: i * N,1) = eigWeight(:,i) .*  (K0 - lambdaSim(i) * M0) * psiSim(:,i);
+    eigCons((i - 1) * N  + 1: i * N,1) = eigWeight * (K0 - lambdaSim(i) * M0) * psiSim(:,i);
 end
 
 diffPoly = [lambdaDiff; psiDiff; eigCons];
